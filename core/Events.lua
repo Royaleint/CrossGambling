@@ -103,11 +103,6 @@ CGCall["START_ROLLS"] = function()
             self:SendMsg(format("CHAT_MSG:%s:%s:%s", self.game.PlayerName, self.game.PlayerClass, prompt))
         end
 
-        local mode = self:GetCurrentMode()
-        if mode and mode.description and mode.description ~= "" then
-            self:AnnounceOrPrint(mode.description)
-        end
-
         self:DispatchModeHook("OnStartRolls")
     end
 end
