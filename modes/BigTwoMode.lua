@@ -1,25 +1,8 @@
-local BigTwoMode = {}
-BigTwoMode.name  = "BigTwo"
+-- BigTwo: a coin flip. Everyone rolls 1-2; whoever rolls the 2 wins the wager from whoever rolls
+-- the 1. Ties re-roll like Classic. Uses the shared high/low rules from ClassicMode.lua.
 
-function BigTwoMode:OnStartRolls(addon, game)
-    addon.db.global.wager = 2
-end
-
-function BigTwoMode:OnRollReceived(addon, game, playerName, actualRoll, minRoll, maxRoll)
-    if minRoll ~= 1 or maxRoll ~= addon.db.global.wager then return end
-
-    local player = addon:getPlayerByName(playerName)
-    if player and player.roll == nil then
-        player.roll = actualRoll
-        if CGCall and CGCall["PLAYER_ROLL"] then
-            CGCall["PLAYER_ROLL"](playerName, tostring(actualRoll))
-        end
-        addon:SendMsg("PLAYER_ROLL", playerName .. ":" .. tostring(actualRoll))
-    end
-
-    if #addon:CheckRolls() == 0 then
-        addon:CGResults()
-    end
-end
-
-CrossGambling:RegisterMode(BigTwoMode)
+CrossGambling:RegisterMode(CrossGambling:NewHighLowMode(
+    "BigTwo",
+    "Everyone rolls 1-2. High roll wins the full wager from the low roll. Ties at the top or bottom re-roll.",
+    { fixedMax = 2, stakeIsWager = true }
+))

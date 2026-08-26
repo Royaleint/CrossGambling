@@ -1,94 +1,106 @@
-local function normalizePlayerNameLocal(addon, name, preserveRealm)
-    if addon and type(addon.NormalizePlayerName) == "function" then
-        return addon:NormalizePlayerName(name, preserveRealm)
-    end
+-- Game lifecycle: host opens entries -> players join in chat -> host closes entries -> the mode
+-- runs the rolls -> debts are settled and the game closes. Everything here runs on the host;
+-- other clients only mirror what the host broadcasts (see Comm.lua).
 
-    if not name then
-        return nil
-    end
+function CrossGambling:ResetGameState()
+    local game = self.game
 
-    name = strtrim(tostring(name))
-    if name == "" then
-        return nil
-    end
+    self:UnregisterEvent("CHAT_MSG_SYSTEM")
+    self:UnRegisterChatEvents()
+    self.chatEventsSuspendedForCombat = false
 
-    if not preserveRealm then
-        name = strsplit("-", name, 2)
-        if not name or name == "" then
-            return nil
-        end
-    end
-
-    return strlower(name)
+    game.state = "START"
+    game.host = false
+    game.hostName = nil
+    game.wager = nil
+    game.houseCut = nil
+    game.result = nil
+    self:ResetPlayers()
 end
 
-local function isPlayerBannedLocal(addon, playerName)
-    if addon and type(addon.IsPlayerBanned) == "function" then
-        return addon:IsPlayerBanned(playerName)
+-- "Host Game" / "New Game" button. Clicking it mid-game simply starts over.
+function CrossGambling:HostNewGame()
+    local game = self.game
+    local global = self.db.global
+
+    if game.state ~= "START" then
+        self:ResetGameState()
     end
 
-    local normalizedPlayerName = normalizePlayerNameLocal(addon, playerName)
-    if not normalizedPlayerName then
-        return false
+    game.host = true
+    game.hostName = game.PlayerName
+    game.wager = global.wager
+    game.houseCut = global.houseCut
+    self:ResetPlayers()
+
+    if CGCall["R_NewGame"] then
+        CGCall["R_NewGame"]()
     end
 
-    for _, bannedPlayer in ipairs((addon and addon.db and addon.db.global and addon.db.global.bans) or {}) do
-        if normalizePlayerNameLocal(addon, bannedPlayer) == normalizedPlayerName then
-            return true
-        end
-    end
+    game.state = "REGISTER"
+    self:RegisterChatEvents()
+    self:GameStart()
 
-    return false
+    local summary = "Game Mode - " .. game.mode .. " - Wager - " .. self:addCommas(game.wager) .. "g"
+    if game.house then
+        summary = summary .. " - House Cut - " .. game.houseCut .. "%"
+    end
+    self:Announce(summary)
+
+    self:SendMsg("R_NewGame")
+    self:SendMsg("New_Game")
+    self:SendMsg("SET_WAGER", game.wager)
+    self:SendMsg("GAME_MODE", game.mode)
+    self:SendMsg("Chat_Method", game.chatMethod)
+    self:SendMsg("SET_HOUSE", game.houseCut)
+    self:SendMsg("HOST_NAME", game.PlayerName)
 end
 
 function CrossGambling:GameStart()
-    if CGChat and CGChat.StartListening then
-        CGChat:StartListening()
-    end
     local handled = self:DispatchModeHook("OnStart")
     if not handled then
-        local joinWord  = self.db.global.joinWord  or "1"
-        local leaveWord = self.db.global.leaveWord or "-1"
-        if self.game.chatframeOption == false then
-            self:SendMsg(format("CHAT_MSG:%s:%s:%s", self.game.PlayerName, self.game.PlayerClass, "has started a roll!"))
-        else
-            self:SendChat("CrossGambling: A new game has been started! Type " .. joinWord .. " to join! (" .. leaveWord .. " to withdraw)")
-        end
+        local joinWord, leaveWord = self:GetJoinWords()
+        self:Announce("CrossGambling: A new game has been started! Type " .. joinWord .. " to join! (" .. leaveWord .. " to withdraw)")
     end
 end
 
+-- A chat line while entries are open (host only).
 function CrossGambling:RegisterGame(text, playerName)
-    local joinWord  = self.db.global.joinWord  or "1"
-    local leaveWord = self.db.global.leaveWord or "-1"
+    local joinWord, leaveWord = self:GetJoinWords()
+    local lowered = self:TrimInput(text):lower()
 
-    if text:lower() == joinWord:lower() then
-        if isPlayerBannedLocal(self, playerName) then
-            self:SendChat("Sorry " .. playerName .. ", you're banned.")
+    if lowered == joinWord:lower() then
+        if self:IsPlayerBanned(playerName) then
+            self:Announce("Sorry " .. playerName .. ", you're banned.")
+            return
+        end
+
+        if self:getPlayerByName(playerName) then
             return
         end
 
         local mode = self:GetCurrentMode()
-
-        if mode and mode.maxPlayers and not self:getPlayerByName(playerName) and #self.game.players >= mode.maxPlayers then
-            self:SendChat("CrossGambling: This game mode is full (" .. mode.maxPlayers .. " max).")
+        if mode and mode.maxPlayers and #self.game.players >= mode.maxPlayers then
+            self:Announce("CrossGambling: This game mode is full (" .. mode.maxPlayers .. " max).")
             return
         end
 
-        local allowed = true
-        if mode and type(mode.OnPlayerJoin) == "function" then
-            allowed = mode:OnPlayerJoin(self, self.game, playerName)
+        local handled, allowed = self:DispatchModeHook("OnPlayerJoin", playerName)
+        if handled and allowed == false then
+            return
         end
-
-        if allowed == false then return end
 
         if self.game.realmFilter == true and self:CheckRealm(playerName) == 0 then
-            self:SendChat("CrossGambling: You are not on (" .. GetRealmName() .. "). You are not eligible to join this game. The host can turn off the Realm Filter in the options.")
-        else
-            self:SendMsg("ADD_PLAYER", playerName)
+            self:Announce("CrossGambling: You are not on (" .. GetRealmName() .. "). You are not eligible to join this game. The host can turn off the Realm Filter in the options.")
+            return
         end
 
-    elseif text:lower() == leaveWord:lower() then
-        self:SendMsg("Remove_Player", playerName)
+        self:SendMsg("ADD_PLAYER", playerName)
+
+    elseif lowered == leaveWord:lower() then
+        if self:getPlayerByName(playerName) then
+            self:SendMsg("Remove_Player", playerName)
+        end
     end
 end
 
@@ -97,155 +109,122 @@ function CrossGambling:CheckRealm(playerName)
     return (realmRelationship == 2) and 0 or 1
 end
 
-function CrossGambling:String(players)
-    local nameString = players[1].name
-    if #players > 1 then
-        for i = 2, #players do
-            if i == #players then
-                nameString = nameString .. " and " .. players[i].name
-            else
-                nameString = nameString .. ", " .. players[i].name
-            end
-        end
-    end
-    return nameString
-end
+-- "Start Rolling" button: closes entries, or nags whoever still needs to roll.
+function CrossGambling:CGRolls()
+    local game = self.game
 
-function CrossGambling:CResult()
-    local winners    = { self.game.players[1] }
-    local losers     = { self.game.players[1] }
-    local amountOwed = 0
+    if game.state == "REGISTER" then
+        local mode = self:GetCurrentMode()
+        local minPlayers = (mode and mode.minPlayers) or 2
 
-    for i = 2, #self.game.players do
-        local p = self.game.players[i]
-        if p.roll < losers[1].roll then
-            losers = { p }
-        elseif p.roll > winners[1].roll then
-            winners = { p }
-        else
-            if p.roll == losers[1].roll  then tinsert(losers,  p) end
-            if p.roll == winners[1].roll then tinsert(winners, p) end
-        end
-    end
-
-    if winners[1].name == losers[1].name then
-        losers = {}
-    else
-        amountOwed = winners[1].roll - losers[1].roll
-    end
-
-    return { winners = winners, losers = losers, amountOwed = amountOwed }
-end
-
-function CrossGambling:detectTie()
-    local tieType = ""
-    if #self.game.result.winners > 1 then
-        tieType = "High"
-    elseif #self.game.result.losers > 1 then
-        tieType = "Low"
-    end
-
-    if tieType ~= "" then
-        local tiedPlayers = {}
-        for i = 1, #self.game.players do
-            local p = self.game.players[i]
-            if (tieType == "High" and p.roll == self.game.result.winners[1].roll) or
-               (tieType == "Low"  and p.roll == self.game.result.losers[1].roll)  then
-                tinsert(tiedPlayers, p)
-            end
+        if #game.players < minPlayers then
+            self:Announce("Not enough Players! This mode needs at least " .. minPlayers .. ".")
+            return
         end
 
-        if #tiedPlayers > 1 then
-            self.game.players = tiedPlayers
-            self.game.playerIndexByName = nil
-            for i = 1, #self.game.players do
-                self.game.players[i].roll = nil
-            end
-            self:TieBreaker(tieType)
-        else
-            self:CloseGame()
+        game.state = "ROLL"
+        if not (mode and mode.usesChatPick) then
+            self:UnRegisterChatEvents()
         end
-    else
-        self:CloseGame()
+        self:RegisterEvent("CHAT_MSG_SYSTEM", "handleSystemMessage")
+
+        self:SendMsg("Disable_Join")
+        if CGCall["Disable_Join"] then
+            CGCall["Disable_Join"]()
+        end
+
+        self:Announce("Entries have closed. Roll now!")
+        self:DispatchModeHook("OnStartRolls")
+
+    elseif game.state == "ROLL" then
+        local turn = self:GetCurrentTurn()
+        if turn then
+            local _, maxRoll = self:GetRollRange()
+            self:Announce(format("%s, it's your turn! Type /roll %d", turn, maxRoll))
+            return
+        end
+
+        local playersRoll = self:CheckRolls()
+        if #playersRoll > 0 then
+            self:Announce(table.concat(playersRoll, ", ") .. " still needs to roll!")
+        end
     end
 end
 
-function CrossGambling:TieBreaker(tieType)
-    if self.game.chatframeOption == false and self.game.host == true then
-        self:SendMsg(format("CHAT_MSG:%s:%s:%s", self.game.PlayerName, self.game.PlayerClass, tieType .. " tie breaker! " .. self:String(self.game.players) .. " /roll " .. self.db.global.wager .. " now!"))
-    else
-        self:SendChat(tieType .. " tie breaker! " .. self:String(self.game.players) .. " /roll " .. self.db.global.wager .. " now!")
+-- What "Roll Me" should roll right now. Modes with special ranges answer through GetRollRange.
+function CrossGambling:GetRollRange()
+    local handled, minRoll, maxRoll = self:DispatchModeHook("GetRollRange")
+    if handled and minRoll and maxRoll then
+        return minRoll, maxRoll
     end
+    return 1, self:GetWager()
+end
+
+function CrossGambling:rollMe()
+    local minRoll, maxRoll = self:GetRollRange()
+    RandomRoll(minRoll, maxRoll)
+end
+
+-- Whose turn it is in a turn-based mode, or nil when everyone rolls at once.
+function CrossGambling:GetCurrentTurn()
+    local handled, turn = self:DispatchModeHook("GetCurrentTurn")
+    if handled then
+        return turn
+    end
+    return nil
+end
+
+-- Settlement --------------------------------------------------------------------------------------
+
+-- Records one debt in the stats and the history log. Returns the chat line describing it.
+function CrossGambling:SettleDebt(loserName, winnerName, amount, modeName)
+    self:updatePlayerStat(loserName, -amount, modeName)
+    self:updatePlayerStat(winnerName, amount, modeName)
+
+    self:AddAuditEntry({
+        timestamp = time(),
+        action    = "debt",
+        loser     = loserName,
+        winner    = winnerName,
+        amount    = amount,
+    })
+
+    return string.format("%s owes %s %sg!", loserName, winnerName, self:addCommas(amount))
+end
+
+-- Skims the house cut off an amount. Returns the remainder and the cut taken.
+function CrossGambling:ApplyHouseCut(amount)
+    if not self.game.house then
+        return amount, 0
+    end
+
+    local houseAmount = math.floor(amount * (self:GetHouseCut() / 100))
+    if houseAmount > 0 then
+        self:updatePlayerStat("guild", houseAmount)
+        self.db.global.housestats = (self.db.global.housestats or 0) + houseAmount
+    end
+
+    return amount - houseAmount, houseAmount
+end
+
+-- Announces the result lines one at a time (chat lines are capped at 255 characters) and closes.
+function CrossGambling:FinishGame(lines)
+    for _, line in ipairs(lines or {}) do
+        self:Announce(line)
+    end
+    self:CloseGame()
 end
 
 function CrossGambling:CloseGame()
-    local closingMode = self.game.mode
-
     self:DispatchModeHook("OnEnd")
-    self:UnregisterEvent("CHAT_MSG_SYSTEM")
-    self:UnRegisterChatEvents()
 
-    if self.game.result ~= nil then
-        if #self.game.result.losers > 0 and #self.game.result.winners > 0 then
-            local houseAmount = 0
-            if self.game.house == true then
-                houseAmount = math.floor(self.game.result.amountOwed * (self.db.global.houseCut / 100))
-                self.game.result.amountOwed = self.game.result.amountOwed - houseAmount
-            end
-
-            for i = 1, #self.game.result.losers do
-                local RollNotification
-                if self.game.house == true then
-                    RollNotification = self.game.result.losers[i].name .. " owes " .. self.game.result.winners[i].name .. " " .. self:addCommas(self.game.result.amountOwed) .. " g! plus " .. self:addCommas(houseAmount) .. " to the guild"
-                    self:updatePlayerStat("guild", houseAmount)
-                else
-                    RollNotification = self.game.result.losers[i].name .. " owes " .. self.game.result.winners[i].name .. " " .. self:addCommas(self.game.result.amountOwed) .. " g!"
-                end
-
-                if self.game.chatframeOption == false and self.game.host == true then
-                    self:SendMsg(format("CHAT_MSG:%s:%s:%s", self.game.PlayerName, self.game.PlayerClass, RollNotification))
-                else
-                    self:SendChat(RollNotification)
-                end
-
-                self:updatePlayerStat(self.game.result.losers[i].name, self.game.result.amountOwed * -1, closingMode)
-                self:updatePlayerStat(self.game.result.winners[i].name, self.game.result.amountOwed * #self.game.result.losers, closingMode)
-
-                self:AddAuditEntry({
-                    timestamp = time(),
-                    action    = "debt",
-                    loser     = self.game.result.losers[i].name,
-                    winner    = self.game.result.winners[i].name,
-                    amount    = self.game.result.amountOwed,
-                })
-            end
-        else
-            if self.game.chatframeOption == false and self.game.host == true then
-                self:SendMsg(format("CHAT_MSG:%s:%s:%s", self.game.PlayerName, self.game.PlayerClass, "No winners this round!"))
-            else
-                self:SendChat("No winners this round!")
-            end
-        end
+    if self.game.host then
+        self:SendMsg("GAME_OVER")
     end
 
-    self.currentRoll  = nil
-    self.game.state   = "START"
-    self.game.players = {}
-    self.game.playerIndexByName = nil
-    self.game.result  = nil
-    self.game.host    = false
-    self.game.hostName = nil
+    self:ResetGameState()
 
-    if CGChat and CGChat.StopListening then
-        CGChat:StopListening()
+    if CGCall["GAME_OVER"] then
+        CGCall["GAME_OVER"]()
     end
 end
-
-function CrossGambling:rollMe(minAmount)
-    local wager     = self.db.global.wager or 100
-    minAmount       = minAmount or 1
-    local maxAmount = (self.currentRoll and self.game.mode == "1v1DeathRoll") and self.currentRoll or wager
-    RandomRoll(minAmount, maxAmount)
-end
-
-C_ChatInfo.RegisterAddonMessagePrefix("CrossGambling")

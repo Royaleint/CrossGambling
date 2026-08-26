@@ -1,3 +1,29 @@
+-- Game modes register themselves here. A mode is a plain table:
+--
+--   name          (required) shown on the mode button and used as the stats key
+--   description   rules text for the tooltip and "Shift+Click to post rules"
+--   minPlayers    default 2
+--   maxPlayers    default nil (no cap)
+--   usesChatPick  true when players answer in chat during the roll phase (OnChatText)
+--   hostRolls     true when only the host rolls (raffle draws, over/under)
+--
+-- Hooks (all optional, all called as mode:Hook(addon, game, ...)):
+--   OnStart(addon, game)                          host opened entries; announce the game
+--   OnPlayerJoin(addon, game, name) -> bool       return false to refuse the entry
+--   OnStartRolls(addon, game)                     entries closed; set up round state
+--   OnRollReceived(addon, game, name, roll, min, max)
+--   OnChatText(addon, game, name, text)           chat during the roll phase (usesChatPick)
+--   OnRemoteRoll(addon, game, name, value)        client side: a roll relayed by the host
+--   OnPlayerLeave(addon, game, name)              a player was removed mid-roll (game.state == "ROLL");
+--                                                  name is already gone from game.players by the time this fires
+--   GetRollRange(addon, game) -> min, max         what "Roll Me" and the bots should roll
+--   GetCurrentTurn(addon, game) -> name           whose turn it is, for turn-based modes
+--   OnEnd(addon, game)                            game closed; clear round state
+--
+-- Shared helpers a mode can lean on: addon:RecordRoll, addon:CheckRolls, addon:hasPendingRolls,
+-- addon:ClearRolls, addon:FindRollExtremes, addon:SettleDebt, addon:Announce, addon:FinishGame,
+-- addon:GetWager, addon:getPlayerByName.
+
 CrossGambling.modeRegistry  = CrossGambling.modeRegistry  or {}
 CrossGambling.modeListOrder = CrossGambling.modeListOrder or {}
 
@@ -6,10 +32,11 @@ function CrossGambling:RegisterMode(modeObj)
     assert(type(modeObj.name) == "string" and modeObj.name ~= "", "RegisterMode: mode must have a non-empty .name")
     assert(not self.modeRegistry[modeObj.name], "RegisterMode: a mode named '" .. modeObj.name .. "' is already registered")
 
-    modeObj.description = modeObj.description or ""
+    modeObj.description  = modeObj.description or ""
     modeObj.minPlayers   = modeObj.minPlayers or 2
     modeObj.maxPlayers   = modeObj.maxPlayers or nil
     modeObj.usesChatPick = modeObj.usesChatPick or false
+    modeObj.hostRolls    = modeObj.hostRolls or false
 
     self.modeRegistry[modeObj.name] = modeObj
     table.insert(self.modeListOrder, modeObj.name)
@@ -33,19 +60,11 @@ function CrossGambling:changeGameMode()
     self.game.mode = list[1]
 end
 
-function CrossGambling:GetModeList()
-    local copy = {}
-    for _, name in ipairs(self.modeListOrder) do
-        table.insert(copy, name)
-    end
-    return copy
-end
-
+-- Calls the hook on the current mode. Returns true when the mode had one, plus the hook's results.
 function CrossGambling:DispatchModeHook(hookName, ...)
     local mode = self:GetCurrentMode()
     if mode and type(mode[hookName]) == "function" then
-        mode[hookName](mode, self, self.game, ...)
-        return true
+        return true, mode[hookName](mode, self, self.game, ...)
     end
     return false
 end

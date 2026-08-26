@@ -17,6 +17,8 @@ externals:
   Libs/LibStub: https://repos.curseforge.com/wow/libstub/trunk
 
 ignore:
+  - tests
+  - .luacheckrc
   - .github
   - .gitignore
   - README.md
