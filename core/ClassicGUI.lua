@@ -1,46 +1,3 @@
-local function normalizePlayerNameLocal(addon, name, preserveRealm)
-    if addon and type(addon.NormalizePlayerName) == "function" then
-        return addon:NormalizePlayerName(name, preserveRealm)
-    end
-
-    if not name then
-        return nil
-    end
-
-    name = strtrim(tostring(name))
-    if name == "" then
-        return nil
-    end
-
-    if not preserveRealm then
-        name = strsplit("-", name, 2)
-        if not name or name == "" then
-            return nil
-        end
-    end
-
-    return strlower(name)
-end
-
-local function isPlayerBannedLocal(addon, playerName)
-    if addon and type(addon.IsPlayerBanned) == "function" then
-        return addon:IsPlayerBanned(playerName)
-    end
-
-    local normalizedPlayerName = normalizePlayerNameLocal(addon, playerName)
-    if not normalizedPlayerName then
-        return false
-    end
-
-    for _, bannedPlayer in ipairs((addon and addon.db and addon.db.global and addon.db.global.bans) or {}) do
-        if normalizePlayerNameLocal(addon, bannedPlayer) == normalizedPlayerName then
-            return true
-        end
-    end
-
-    return false
-end
-
 local CGPlayers = {}
 local playerButtons = {}
 local playerButtonsFrame
@@ -277,37 +234,11 @@ CGAcceptOnes:SetScript("OnClick", function()
     if CGAcceptOnes:GetText() == "Host Game" then
         CGAcceptOnes:SetText("New Game")
     else
-        self.game.state = "START"
-        self.game.host = true
-        self.game.hostName = self.game.PlayerName
         self:SetWager(CGEditBox:GetText())
         self.game.mode = CGGameMode:GetText()
         self.game.chatMethod = GCchatMethod:GetText()
         self:SetHouseCut(CGGuildPercent:GetText())
-
-        for i = #CGPlayers, 1, -1 do
-            CrossGambling:RemovePlayer(CGPlayers[i].name)
-        end
-        if CGStartRoll then CGStartRoll:SetText("Start Rolling") end
-        if CGEnter then CGEnter:Enable() end
-
-        self:RegisterChatEvents()
-        self.game.state = "REGISTER"
-        self:GameStart()
-
-        if self.game.house == false then
-            self:SendChat("Game Mode - " .. self.game.mode .. " - Wager - " .. self:addCommas(self.db.global.wager) .. "g")
-        else
-            self:SendChat("Game Mode - " .. self.game.mode .. " - Wager - " .. self:addCommas(self.db.global.wager) .. "g - House Cut - " .. self.db.global.houseCut .. "%")
-        end
-
-        self:SendMsg("R_NewGame")
-        self:SendMsg("New_Game")
-        self:SendMsg("SET_WAGER", self.db.global.wager)
-        self:SendMsg("GAME_MODE", self.game.mode)
-        self:SendMsg("Chat_Method", self.game.chatMethod)
-        self:SendMsg("SET_HOUSE", self.db.global.houseCut)
-        self:SendMsg("HOST_NAME", self.game.PlayerName)
+        self:HostNewGame()
     end
 
     CGAcceptOnes:Enable()
@@ -502,6 +433,7 @@ end)
 
 
 local CGRightMenu = CreateFrame("Frame", "CGRightMenu", CrossGamblingUI, "InsetFrameTemplate")
+CrossGambling.CGRightMenu = CGRightMenu
 CGRightMenu:SetPoint("TOPLEFT", CrossGamblingUI, "TOPRIGHT", 0, 0)
 CGRightMenu:SetSize(220, 150)
 CGRightMenu:Hide()
@@ -563,20 +495,6 @@ local function OnChatSubmit(CGChatBox)
     CGChatBox:SetText("")
     CGChatBox:ClearFocus()
 end
-
-local CallFrame = CreateFrame("Frame")
-CallFrame:RegisterEvent("CHAT_MSG_ADDON")
-CallFrame:SetScript("OnEvent", function(self, event, prefix, msg)
-	if prefix ~= "CrossGambling" then return end
-		local event_type, arg1, arg2 = strsplit(":", msg)
-	if CGCall[event_type] then
-		CGCall[event_type](arg1, arg2)
-	elseif event_type == "CHAT_MSG" then
-	local name, class, message = strmatch(msg, "CHAT_MSG:(%S+):(%S+):(.+)")
-	local formatted = string.format("[%s|r]: %s", name, message)
-	CGRightMenu.TextField:AddMessage(formatted)
-	end
-end)
 
 local PLACEHOLDER = "Type Here..."
 local CGChatBox = CreateFrame("EditBox", nil, CGRightMenu, "InputBoxTemplate")
@@ -766,10 +684,6 @@ end
 
 
 function CrossGambling:AddPlayer(playerName)
-    if isPlayerBannedLocal(self, playerName) then
-        return
-    end
-
     if playerIndexByName[playerName] then
         return
     end
@@ -850,23 +764,34 @@ CGEnter:Enable()
 end
 
 CGCall["DisableClient"] = function()
-		CGAcceptOnes:Disable()
-		CGLastCall:Disable()
-		CGStartRoll:Disable()
-		CrossGambling.game.players = {}
-		CrossGambling.game.playerIndexByName = nil
-		CrossGambling.game.result = nil
-	if(CrossGambling.game.host) then
-		CGAcceptOnes:Enable()
-		CGLastCall:Enable()
-		CGStartRoll:Enable()
-	end
+    CGAcceptOnes:Disable()
+    CGLastCall:Disable()
+    CGStartRoll:Disable()
+    if CrossGambling.game.host then
+        CGAcceptOnes:Enable()
+        CGLastCall:Enable()
+        CGStartRoll:Enable()
+    end
 end
 
 CGCall["Disable_Join"] = function()
-CGEnter:Disable()
+    CGEnter:Disable()
+end
+
+CGCall["GAME_OVER"] = function()
+    CGAcceptOnes:Enable()
+    CGLastCall:Enable()
+    CGStartRoll:Enable()
+    CGStartRoll:SetText("Start Rolling")
+    CGEnter_UpdateJoinText()
+    CGEnter:Enable()
+end
+
+if not CrossGambling.game.host and CrossGambling.game.state ~= "START" then
+    CGCall["DisableClient"]()
+end
+if CrossGambling.game.state == "ROLL" then
+    CGCall["Disable_Join"]()
 end
 
 end
-
-C_ChatInfo.RegisterAddonMessagePrefix("CrossGambling")

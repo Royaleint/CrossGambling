@@ -1,3 +1,4 @@
+
 CrossGambling.modeRegistry  = CrossGambling.modeRegistry  or {}
 CrossGambling.modeListOrder = CrossGambling.modeListOrder or {}
 
@@ -6,10 +7,11 @@ function CrossGambling:RegisterMode(modeObj)
     assert(type(modeObj.name) == "string" and modeObj.name ~= "", "RegisterMode: mode must have a non-empty .name")
     assert(not self.modeRegistry[modeObj.name], "RegisterMode: a mode named '" .. modeObj.name .. "' is already registered")
 
-    modeObj.description = modeObj.description or ""
+    modeObj.description  = modeObj.description or ""
     modeObj.minPlayers   = modeObj.minPlayers or 2
     modeObj.maxPlayers   = modeObj.maxPlayers or nil
     modeObj.usesChatPick = modeObj.usesChatPick or false
+    modeObj.hostRolls    = modeObj.hostRolls or false
 
     self.modeRegistry[modeObj.name] = modeObj
     table.insert(self.modeListOrder, modeObj.name)
@@ -33,19 +35,10 @@ function CrossGambling:changeGameMode()
     self.game.mode = list[1]
 end
 
-function CrossGambling:GetModeList()
-    local copy = {}
-    for _, name in ipairs(self.modeListOrder) do
-        table.insert(copy, name)
-    end
-    return copy
-end
-
 function CrossGambling:DispatchModeHook(hookName, ...)
     local mode = self:GetCurrentMode()
     if mode and type(mode[hookName]) == "function" then
-        mode[hookName](mode, self, self.game, ...)
-        return true
+        return true, mode[hookName](mode, self, self.game, ...)
     end
     return false
 end

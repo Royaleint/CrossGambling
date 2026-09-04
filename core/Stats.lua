@@ -1,25 +1,5 @@
 local function normalizePlayerNameLocal(addon, name, preserveRealm)
-    if addon and type(addon.NormalizePlayerName) == "function" then
-        return addon:NormalizePlayerName(name, preserveRealm)
-    end
-
-    if not name then
-        return nil
-    end
-
-    name = strtrim(tostring(name))
-    if name == "" then
-        return nil
-    end
-
-    if not preserveRealm then
-        name = strsplit("-", name, 2)
-        if not name or name == "" then
-            return nil
-        end
-    end
-
-    return strlower(name)
+    return addon:NormalizePlayerName(name, preserveRealm)
 end
 
 local function getStoredName(statsTable, name)
@@ -425,9 +405,6 @@ local function ensureStatsImportDialog(addon)
                 addon.db.global.altStats = pending.altStats
                 addon.db.global.housestats = pending.housestats
                 addon.db.global.modeStats = pending.modeStats
-                if CrossGambling["stats"] then
-                    CrossGambling["stats"] = addon.db.global.stats
-                end
             else
                 addon.db.global.stats = pending.stats
                 addon.db.global.deathrollStats = pending.deathrollStats
@@ -435,9 +412,6 @@ local function ensureStatsImportDialog(addon)
                 addon.db.global.altStats = pending.altStats
                 addon.db.global.housestats = pending.housestats
                 addon.db.global.modeStats = pending.modeStats
-                if CrossGambling["stats"] then
-                    CrossGambling["stats"] = addon.db.global.stats
-                end
             end
             addon.pendingStatsImport = nil
             addon:Print("Stats import complete.")

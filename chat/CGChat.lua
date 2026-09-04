@@ -108,28 +108,6 @@ function CGChat:BuildChatPanel(parentFrame, game, backdropApplyFn, sideColorAppl
 
     CGRightMenu.ChatBox = CGChatBox
 
-    local callFrame = CreateFrame("Frame")
-    callFrame:SetScript("OnEvent", function(self, event, prefix, msg)
-        if prefix ~= "CrossGambling" then return end
-        local event_type, arg1, arg2 = strsplit(":", msg)
-        if CGCall[event_type] then
-            CGCall[event_type](arg1, arg2)
-        elseif event_type == "CHAT_MSG" then
-            local name, class, message = strmatch(msg, "CHAT_MSG:(%S+):(%S+):(.+)")
-            if name and message then
-                textField:AddMessage(string.format("[%s|r]: %s", name, message))
-            end
-        end
-    end)
-
-    function CGChat:StartListening()
-        callFrame:RegisterEvent("CHAT_MSG_ADDON")
-    end
-
-    function CGChat:StopListening()
-        callFrame:UnregisterEvent("CHAT_MSG_ADDON")
-    end
-
     CGChat.RightMenu = CGRightMenu
     CGChat.TextField = textField
     CGChat.ChatBox   = CGChatBox
