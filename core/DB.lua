@@ -94,10 +94,6 @@ end
 function CrossGambling:InitDB()
     ReclaimGlobalFromSavedVariables()
 
-    -- Foundry.DB reads the existing AceDB save file unchanged: same sv global,
-    -- same charKey shape, same "Default" profile key, same logout strip. The
-    -- name must be the real folder name -- DB feeds it to
-    -- C_AddOns.IsAddOnLoaded (Modules/DB.lua:787-799).
     self.db = F.DB:New({
         name = ADDON_NAME,
         sv = "CrossGamblingDB",

@@ -1,33 +1,18 @@
 local ADDON_NAME = ...
 
--- Foundry-1.0 replaces AceAddon-3.0, AceConsole-3.0, AceEvent-3.0 and AceDB-3.0.
--- The embedded copy under Libs/ loads from Libs.xml; a standalone install wins
--- the bootstrap gate ahead of it via OptionalDeps.
 local F = _G.Foundry_1_0
 if not F then
     error("CrossGambling requires Foundry-1.0. Please install or enable it.")
 end
 
--- Require the four modules this addon uses, each at the LOWEST API level that
--- carries the behaviour it depends on. A standalone Foundry-1.0 wins the
--- bootstrap gate ahead of the embedded copy, so every level pinned here is a
--- version floor imposed on other people's installs: pinning above what the code
--- needs turns a working older library into a hard load failure.
 F:RequireModule("Commands", 1)
 F:RequireModule("Events", 1)
 F:RequireModule("Lifecycle", 1)
 F:RequireModule("DB", 1)
 
--- The addon object: a plain table, published under the global the rest of the
--- addon already binds at file scope. CrossGambling is also a SavedVariable, so
--- WoW overwrites this global with the save file before ADDON_LOADED;
--- core/DB.lua's ReclaimGlobalFromSavedVariables restores it.
 CrossGambling = {}
 local CrossGambling = CrossGambling
 
--- Reproduces AceConsole-3.0's visible output exactly: the addon name in
--- |cff33ff99, a colon, then the stringified arguments joined by single spaces,
--- emitted through DEFAULT_CHAT_FRAME:AddMessage.
 local PRINT_PREFIX = "|cff33ff99CrossGambling|r:"
 
 function CrossGambling:Print(...)
@@ -40,19 +25,8 @@ function CrossGambling:Print(...)
     DEFAULT_CHAT_FRAME:AddMessage(table.concat(parts, " ", 1, n))
 end
 
--- One Foundry.Events controller for the whole addon, created at file scope so
--- the shim below is valid from the first call. Events:New creates a hidden
--- frame and registers nothing until :Register (Modules/Events.lua:530-563).
 local events = F.Events:New("CrossGambling")
 
--- AceEvent-3.0 compatibility shim. Two differences from AceEvent are handled
--- here and nowhere else:
---   * Foundry hands the handler (event, ...) with no self, so the wrapper
---     re-supplies the addon object (Modules/Events.lua:553-558).
---   * Foundry REFUSES a duplicate registration where AceEvent silently
---     replaced it (Modules/Events.lua:59-63); RegisterChatEvents can be
---     reached twice without an intervening unregister, so the guard is
---     load-bearing, not defensive padding.
 function CrossGambling:RegisterEvent(event, methodName)
     if events:IsRegistered(event) then
         return
@@ -73,10 +47,6 @@ function CrossGambling:IsEventRegistered(event)
     return events:IsRegistered(event)
 end
 
--- Adopt the addon table onto a Lifecycle controller. addon-loaded fires after
--- SavedVariables are restored, which is exactly where AceAddon dispatched
--- OnInitialize. The wrapper (not a direct method reference) is required
--- because OnInitialize is defined further down this file.
 local lifecycle = F.Lifecycle:New(CrossGambling, ADDON_NAME)
 lifecycle:OnAddonLoaded(function() CrossGambling:OnInitialize() end)
 
@@ -105,18 +75,12 @@ function CrossGambling:OnInitialize()
     self:RegisterEvent("ENCOUNTER_START", "OnEncounterStart")
     self:RegisterEvent("ENCOUNTER_END", "OnEncounterEnd")
 
-    -- Foundry.Commands replaces AceConsole-3.0's RegisterChatCommand. The
-    -- printer routes every controller line through the same coloured prefix
-    -- AceConsole used, so help and error text look unchanged.
     local commands = F.Commands:New({
         name = "CrossGambling",
         slashes = { "/cg", "/crossgambling" },
         printer = function(line) CrossGambling:Print(line) end,
         defaultHandler = function() CrossGambling:PrintCommandHelp() end,
         unknownMessage = function(input)
-            -- Reproduce the pre-Foundry two-part response: the offending token
-            -- only (not the whole input), then the command list. Returning ""
-            -- suppresses the controller's own line (Modules/Commands.lua:282).
             local token = input:match("^(%S+)") or input
             CrossGambling:Print(("Unknown command: %s"):format(token:lower()))
             CrossGambling:PrintCommandHelp()

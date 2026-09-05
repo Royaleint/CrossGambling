@@ -1,8 +1,5 @@
 CGTheme = {}
 
--- Captured at file load: CrossGambling is also a SavedVariable, so the global is
--- replaced by the save file between load and ADDON_LOADED (core/DB.lua:2 does the
--- same for the same reason).
 local addonObject = CrossGambling
 
 CGTheme._frameColor  = {r = 0.27, g = 0.27, b = 0.27}
