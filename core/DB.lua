@@ -1,5 +1,7 @@
 
+local ADDON_NAME = ...
 local addonObject = CrossGambling
+local F = _G.Foundry_1_0
 local chatMethods = { "PARTY", "RAID", "GUILD" }
 local uiThemes = { "Classic", "Slick" }
 
@@ -92,7 +94,16 @@ end
 function CrossGambling:InitDB()
     ReclaimGlobalFromSavedVariables()
 
-    self.db = LibStub("AceDB-3.0"):New("CrossGamblingDB", defaults, true)
+    -- Foundry.DB reads the existing AceDB save file unchanged: same sv global,
+    -- same charKey shape, same "Default" profile key, same logout strip. The
+    -- name must be the real folder name -- DB feeds it to
+    -- C_AddOns.IsAddOnLoaded (Modules/DB.lua:787-799).
+    self.db = F.DB:New({
+        name = ADDON_NAME,
+        sv = "CrossGamblingDB",
+        defaults = defaults,
+        defaultProfile = true,
+    })
     self.game = self:NewGameState()
     self:RebuildBanCache()
 end
