@@ -3,6 +3,11 @@ local playerButtons = {}
 local playerButtonsFrame
 local playerIndexByName = {}
 local pendingPlayerListRefresh = false
+
+-- Captured at file load: CrossGambling is also a SavedVariable, so the global is
+-- replaced by the save file between load and ADDON_LOADED (core/DB.lua:2 does the
+-- same for the same reason).
+local addonObject = CrossGambling
 local CG = "Interface\\AddOns\\CrossGambling\\media\\CG.tga"
 local Backdrop = {
 	bgFile = CG,
@@ -96,13 +101,7 @@ local function StyleSlickScrollBar(scrollFrame)
 end
 
 local function GetAddonRef()
-    local ok, addon = pcall(function()
-        return LibStub("AceAddon-3.0"):GetAddon("CrossGambling")
-    end)
-    if ok and addon then
-        return addon
-    end
-    return CrossGambling
+    return addonObject
 end
 
 local function GetAuditRetentionOptionsLocal()

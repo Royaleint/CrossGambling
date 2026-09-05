@@ -1,4 +1,9 @@
 CGOptions = {}
+
+-- Captured at file load: CrossGambling is also a SavedVariable, so the global is
+-- replaced by the save file between load and ADDON_LOADED (core/DB.lua:2 does the
+-- same for the same reason).
+local addonObject = CrossGambling
 local _buildCount = 0
 local OPTION_BACKDROP = {
     bgFile = "Interface\\AddOns\\CrossGambling\\media\\CG.tga",
@@ -17,7 +22,7 @@ local SUPPORT_LINKS = {
 }
 
 local function GetAddon()
-    return LibStub("AceAddon-3.0"):GetAddon("CrossGambling")
+    return addonObject
 end
 
 local function EnsureBackdrop(frame)
